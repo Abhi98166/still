@@ -5,6 +5,7 @@ import '../../app/providers.dart';
 import '../../core/theme/still_theme.dart';
 import '../../core/theme/tokens.dart';
 import '../../models/journal_entry.dart';
+import '../../services/backup_storage.dart';
 import '../../services/export_service.dart';
 
 Future<T?> _showStillSheet<T>({
@@ -158,10 +159,58 @@ Future<void> showImportSheet(BuildContext context, WidgetRef ref) {
   );
 }
 
+Future<void> showRestoreSheet(BuildContext context, WidgetRef ref) {
+  return _showStillSheet<void>(
+    context: context,
+    title: 'Restore from a folder',
+    body:
+        'Choose a folder still has backed up to before — on this device or '
+        'synced onto it. Existing days are kept unless you say otherwise.',
+    options: (sheetContext) => [
+      _sheetOption(
+        sheetContext,
+        label: 'Choose a folder…',
+        onTap: () async {
+          Navigator.of(sheetContext).pop();
+          await _runFolderRestore(context, ref);
+        },
+      ),
+    ],
+  );
+}
+
+Future<void> _runFolderRestore(BuildContext context, WidgetRef ref) async {
+  final List<JournalEntry> parsed;
+  try {
+    final folder = await ref.read(backupStorageProvider).pickFolder();
+    if (folder == null) return;
+
+    if (context.mounted) _notify(context, 'Reading ${folder.name}…');
+    parsed = await ref.read(backupServiceProvider).readFolder(folder.uri);
+  } on BackupStorageException catch (e) {
+    if (context.mounted) _notify(context, e.message);
+    return;
+  } catch (e) {
+    if (context.mounted) _notify(context, 'Could not read that folder.');
+    return;
+  }
+
+  if (parsed.isEmpty) {
+    if (context.mounted) {
+      _notify(context, 'No still entries in that folder.');
+    }
+    return;
+  }
+
+  if (context.mounted) {
+    await _applyImport(context, ref, parsed, source: 'folder');
+  }
+}
+
 Future<void> _runImport(BuildContext context, WidgetRef ref) async {
   final List<JournalEntry>? parsed;
   try {
-    parsed = await ImportService().pickAndParse();
+    parsed = await const ImportService().pickAndParse();
   } on ImportException catch (e) {
     if (context.mounted) _notify(context, e.message);
     return;
@@ -171,7 +220,17 @@ Future<void> _runImport(BuildContext context, WidgetRef ref) async {
   }
 
   if (parsed == null) return;
+  if (context.mounted) {
+    await _applyImport(context, ref, parsed, source: 'file');
+  }
+}
 
+Future<void> _applyImport(
+  BuildContext context,
+  WidgetRef ref,
+  List<JournalEntry> parsed, {
+  required String source,
+}) async {
   final repo = ref.read(journalRepositoryProvider);
   final outcome = await repo.mergeImport(parsed);
   if (!context.mounted) return;
@@ -208,7 +267,7 @@ Future<void> _runImport(BuildContext context, WidgetRef ref) async {
                     '${outcome.imported == 1 ? 'entry' : 'entries'}. '
                     '$n ${n == 1 ? 'day already had' : 'days already had'} an entry '
                     'and ${n == 1 ? 'was' : 'were'} left untouched.'
-              : '$n ${n == 1 ? 'day in that file already has' : 'days in that file already have'} '
+              : '$n ${n == 1 ? 'day in that $source already has' : 'days in that $source already have'} '
                     'an entry here. Nothing has been changed yet.',
           style: t.bodySmall.copyWith(color: c.soft, height: 1.5),
         ),

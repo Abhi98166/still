@@ -79,6 +79,49 @@ class BackupService {
     );
   }
 
+  // Syncthing users may hand us the folder holding "still", the "still" folder
+  // itself, or just a pile of day files. Try each shape before giving up rather
+  // than making them guess which one we meant.
+  static const List<String> restoreRoots = ['$root/entries', 'entries', ''];
+
+  Future<List<JournalEntry>> readFolder(String folderUri) async {
+    for (final dir in restoreRoots) {
+      final paths = await _storage.list(folderUri, dir);
+      final documents = [
+        for (final path in paths)
+          if (path.toLowerCase().endsWith('.md')) path,
+      ];
+      if (documents.isNotEmpty) return _parseAll(folderUri, documents);
+    }
+    return const [];
+  }
+
+  Future<List<JournalEntry>> _parseAll(
+    String folderUri,
+    List<String> paths,
+  ) async {
+    const importer = ImportService();
+    final newest = <String, JournalEntry>{};
+
+    for (var i = 0; i < paths.length; i += BackupStorage.readChunk) {
+      final end = i + BackupStorage.readChunk;
+      final batch = paths.sublist(i, end > paths.length ? paths.length : end);
+      final files = await _storage.readBatch(folderUri, batch);
+
+      for (final raw in files.values) {
+        final entry = importer.parseEntryDocument(raw);
+        if (entry == null) continue;
+
+        final existing = newest[entry.date];
+        if (existing == null || entry.updatedAt.isAfter(existing.updatedAt)) {
+          newest[entry.date] = entry;
+        }
+      }
+    }
+
+    return newest.values.toList()..sort((a, b) => a.date.compareTo(b.date));
+  }
+
   Future<Map<String, int>> _readManifest(String folderUri) async {
     final raw = await _storage.readText(folderUri, manifestPath);
     if (raw == null || raw.isEmpty) return const {};

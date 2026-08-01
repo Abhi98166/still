@@ -73,6 +73,12 @@ class SettingsScreen extends ConsumerWidget {
                   trailing: 'Merge, never overwrite',
                   onTap: () => showImportSheet(context, ref),
                 ),
+                if (BackupStorage.isSupported)
+                  _DataRow(
+                    label: 'Restore from folder',
+                    trailing: 'A backup folder',
+                    onTap: () => showRestoreSheet(context, ref),
+                  ),
               ],
             ),
 

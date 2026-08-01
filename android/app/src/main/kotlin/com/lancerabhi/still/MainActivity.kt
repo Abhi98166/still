@@ -31,6 +31,8 @@ class MainActivity : FlutterActivity() {
                     "hasAccess" -> result.success(hasAccess(call.arg("uri")))
                     "release" -> result.success(release(call.arg("uri")))
                     "readText" -> background(result) { readText(call.tree(), call.arg("path")) }
+                    "list" -> background(result) { list(call.tree(), call.arg("path")) }
+                    "readBatch" -> background(result) { readBatch(call.tree(), call.paths()) }
                     "write" -> background(result) { write(call.tree(), call.files()) }
                     "delete" -> background(result) { delete(call.tree(), call.paths()) }
                     else -> result.notImplemented()
@@ -132,6 +134,54 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun list(tree: Uri, path: String): List<String> {
+        val walk = TreeWalk(tree)
+        val dirId = findDocumentId(walk, path) ?: return emptyList()
+        val found = ArrayList<String>()
+        collect(tree, dirId, path.trim('/'), found)
+        return found
+    }
+
+    private fun collect(tree: Uri, dirId: String, prefix: String, into: MutableList<String>) {
+        contentResolver.query(
+            DocumentsContract.buildChildDocumentsUriUsingTree(tree, dirId),
+            arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_MIME_TYPE,
+            ),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            while (cursor.moveToNext()) {
+                val name = cursor.getString(1) ?: continue
+                val child = if (prefix.isEmpty()) name else "$prefix/$name"
+                if (cursor.getString(2) == DocumentsContract.Document.MIME_TYPE_DIR) {
+                    collect(tree, cursor.getString(0), child, into)
+                } else {
+                    into.add(child)
+                }
+            }
+        }
+    }
+
+    private fun readBatch(tree: Uri, paths: List<String>): Map<String, String> {
+        val walk = TreeWalk(tree)
+        val found = HashMap<String, String>()
+        for (path in paths) {
+            val doc = findDocument(walk, path) ?: continue
+            try {
+                contentResolver.openInputStream(doc)?.use {
+                    found[path] = it.readBytes().toString(Charsets.UTF_8)
+                }
+            } catch (e: Exception) {
+                continue
+            }
+        }
+        return found
+    }
+
     private fun write(tree: Uri, files: List<Map<String, String>>): Int {
         val walk = TreeWalk(tree)
         var written = 0
@@ -176,12 +226,17 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun findDocument(walk: TreeWalk, path: String): Uri? {
+        val id = findDocumentId(walk, path) ?: return null
+        return DocumentsContract.buildDocumentUriUsingTree(walk.tree, id)
+    }
+
+    private fun findDocumentId(walk: TreeWalk, path: String): String? {
         var id = walk.root
         for (segment in path.split('/')) {
             if (segment.isEmpty()) continue
             id = walk.children(id).find(segment) ?: return null
         }
-        return DocumentsContract.buildDocumentUriUsingTree(walk.tree, id)
+        return id
     }
 
     private inner class TreeWalk(val tree: Uri) {

@@ -36,6 +36,7 @@ class BackupStorage {
   static const MethodChannel _channel = MethodChannel('still/backup');
 
   static const int writeChunk = 200;
+  static const int readChunk = 200;
 
   static bool get isSupported =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
@@ -63,6 +64,27 @@ class BackupStorage {
   Future<String?> readText(String uri, String path) => _guard(
     () => _channel.invokeMethod<String>('readText', {'uri': uri, 'path': path}),
   );
+
+  Future<List<String>> list(String uri, String path) async {
+    final paths = await _guard(
+      () => _channel.invokeListMethod<String>('list', {
+        'uri': uri,
+        'path': path,
+      }),
+    );
+    return paths ?? const [];
+  }
+
+  Future<Map<String, String>> readBatch(String uri, List<String> paths) async {
+    if (paths.isEmpty) return const {};
+    final files = await _guard(
+      () => _channel.invokeMapMethod<String, String>('readBatch', {
+        'uri': uri,
+        'paths': paths,
+      }),
+    );
+    return files ?? const {};
+  }
 
   Future<int> write(String uri, List<BackupFile> files) async {
     var written = 0;

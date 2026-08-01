@@ -31,6 +31,20 @@ class _FakeStorage extends BackupStorage {
   Future<String?> readText(String uri, String path) async => files[path];
 
   @override
+  Future<List<String>> list(String uri, String path) async {
+    final prefix = path.isEmpty ? '' : '$path/';
+    return files.keys.where((k) => k.startsWith(prefix)).toList()..sort();
+  }
+
+  @override
+  Future<Map<String, String>> readBatch(String uri, List<String> paths) async {
+    return {
+      for (final path in paths)
+        if (files.containsKey(path)) path: files[path]!,
+    };
+  }
+
+  @override
   Future<int> write(String uri, List<BackupFile> incoming) async {
     for (final f in incoming) {
       files[f.path] = f.content;
@@ -194,6 +208,78 @@ void main() {
 
       expect(outcome.written, 2);
       expect(storage.written.length, 3);
+    });
+
+    test('reads back everything it wrote', () async {
+      final storage = _FakeStorage();
+      final service = BackupService(storage);
+      final entries = [
+        _entry('2026-07-30', title: 'A title: with a colon'),
+        _entry('2026-08-01', content: 'Two\n\nparagraphs.'),
+      ];
+
+      await service.run(folderUri: _uri, entries: entries);
+      final restored = await service.readFolder(_uri);
+
+      expect(restored.map((e) => e.date), ['2026-07-30', '2026-08-01']);
+      expect(restored.first.title, 'A title: with a colon');
+      expect(restored.last.content, 'Two\n\nparagraphs.');
+    });
+
+    test('restores when handed the still folder itself', () async {
+      final storage = _FakeStorage()
+        ..files['entries/2026/2026-08-01.md'] = const ExportService()
+            .entryDocument(_entry('2026-08-01', content: 'nested one level up'));
+
+      final restored = await BackupService(storage).readFolder(_uri);
+
+      expect(restored.single.content, 'nested one level up');
+    });
+
+    test('restores from a bare pile of day files', () async {
+      final storage = _FakeStorage()
+        ..files['2026-08-01.md'] = const ExportService().entryDocument(
+          _entry('2026-08-01', content: 'no folders at all'),
+        );
+
+      final restored = await BackupService(storage).readFolder(_uri);
+
+      expect(restored.single.content, 'no folders at all');
+    });
+
+    test('skips files that are not still entries', () async {
+      final storage = _FakeStorage()
+        ..files['still/entries/2026/2026-08-01.md'] = const ExportService()
+            .entryDocument(_entry('2026-08-01'))
+        ..files['still/entries/2026/notes.md'] = 'just some markdown'
+        ..files['still/entries/2026/photo.png'] = 'binary';
+
+      final restored = await BackupService(storage).readFolder(_uri);
+
+      expect(restored.single.date, '2026-08-01');
+    });
+
+    test('keeps the newest copy when a day appears twice', () async {
+      final older = _entry('2026-08-01', content: 'older');
+      final newer = older.copyWith(
+        content: 'newer',
+        updatedAt: DateTime(2026, 8, 1, 22),
+      );
+
+      final storage = _FakeStorage()
+        ..files['still/entries/2026/2026-08-01.md'] = const ExportService()
+            .entryDocument(older)
+        ..files['still/entries/2026/2026-08-01 (1).md'] = const ExportService()
+            .entryDocument(newer);
+
+      final restored = await BackupService(storage).readFolder(_uri);
+
+      expect(restored.single.content, 'newer');
+    });
+
+    test('an empty folder restores nothing rather than failing', () async {
+      final restored = await BackupService(_FakeStorage()).readFolder(_uri);
+      expect(restored, isEmpty);
     });
 
     test('a corrupt manifest falls back to a full write', () async {

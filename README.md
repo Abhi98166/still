@@ -18,7 +18,7 @@ choose. Read that section before turning it on.
 - A daily reminder, scheduled on-device
 - Export to Markdown, JSON or text via the share sheet
 - Import from a JSON export. Merges, won't clobber days you already have
-- Backup folder, Android only, off by default
+- Backup folder, Android only, off by default. Restores from one too
 
 ## Backup folder
 
@@ -42,6 +42,13 @@ off instead of starting over.
 Backups run a few seconds after you write, and again when you reopen the app.
 There's no background service. Entries only change while the app is open, so
 there'd be nothing for one to do.
+
+To go the other way, use Restore from folder under Your data. Point it at the
+folder and still reads every day file it finds, keeping the newest copy if a day
+turns up twice. Days you already have are left alone unless you say to replace
+them. You can hand it the folder holding `still`, the `still` folder itself, or a
+directory of loose day files, and it'll work out which you meant — a folder
+synced onto a new phone rarely lands at the same depth it left.
 
 Worth knowing before you turn it on: a folder outside app-private storage is
 readable by any app with storage permission, and these files are plain text.
