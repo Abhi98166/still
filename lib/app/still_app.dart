@@ -13,15 +13,22 @@ class StillApp extends ConsumerStatefulWidget {
   ConsumerState<StillApp> createState() => _StillAppState();
 }
 
-class _StillAppState extends ConsumerState<StillApp> {
+class _StillAppState extends ConsumerState<StillApp> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+
+    // The backup controller watches the journal for changes, so it has to
+    // outlive the screens that read it — this subscription is what pins it.
+    ref.listenManual(backupControllerProvider, (_, _) {});
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final notifications = ref.read(notificationServiceProvider);
       await notifications.init();
       await notifications.sync(ref.read(settingsProvider));
+
+      ref.read(backupControllerProvider.notifier).onAppLifecycle();
     });
 
     ref.listenManual(settingsProvider, (previous, next) {
@@ -32,6 +39,20 @@ class _StillAppState extends ConsumerState<StillApp> {
         ref.read(notificationServiceProvider).sync(next);
       }
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.resumed) {
+      ref.read(backupControllerProvider.notifier).onAppLifecycle();
+    }
   }
 
   @override

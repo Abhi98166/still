@@ -6,7 +6,9 @@ import '../../app/router.dart';
 import '../../core/theme/accents.dart';
 import '../../core/theme/still_theme.dart';
 import '../../core/theme/tokens.dart';
+import '../../core/still_dates.dart';
 import '../../models/app_settings.dart';
+import '../../services/backup_storage.dart';
 import '../../widgets/still_card.dart';
 import '../../widgets/still_scaffold.dart';
 import '../../widgets/still_tab_bar.dart';
@@ -46,6 +48,13 @@ class SettingsScreen extends ConsumerWidget {
             const StillLabel('Reminder', style: StillLabelStyle.group),
             const SizedBox(height: 10),
             _ReminderGroup(settings: settings),
+
+            if (BackupStorage.isSupported) ...[
+              const SizedBox(height: 26),
+              const StillLabel('Backup folder', style: StillLabelStyle.group),
+              const SizedBox(height: 10),
+              _BackupGroup(settings: settings),
+            ],
 
             const SizedBox(height: 26),
             const StillLabel('Your data', style: StillLabelStyle.group),
@@ -284,6 +293,120 @@ class _ReminderGroup extends ConsumerWidget {
   }
 }
 
+class _BackupGroup extends ConsumerWidget {
+  const _BackupGroup({required this.settings});
+
+  final AppSettings settings;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.still;
+    final t = context.type;
+
+    final backup = ref.watch(backupControllerProvider);
+    final controller = ref.read(backupControllerProvider.notifier);
+    final on = settings.backupReady;
+    final busy = backup.isRunning;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        StillGroup(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Daily backup',
+                          style: t.settingsRow.copyWith(color: c.ink),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          on
+                              ? 'One file per day, written as you write'
+                              : 'Choose a folder you already sync',
+                          style: t.caption.copyWith(color: c.muted),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Switch(
+                    value: on,
+                    onChanged: busy
+                        ? null
+                        : (value) => value
+                              ? controller.chooseFolder()
+                              : controller.disable(),
+                  ),
+                ],
+              ),
+            ),
+
+            if (on) ...[
+              _DataRow(
+                label: 'Folder',
+                trailing: settings.backupFolderName ?? 'Chosen folder',
+                onTap: busy ? null : controller.chooseFolder,
+              ),
+              _DataRow(
+                label: 'Back up now',
+                trailing: _lastRun(backup, settings),
+                onTap: busy ? null : () => controller.run(),
+              ),
+              _DataRow(
+                label: 'Re-export everything',
+                trailing: 'Rewrites every file',
+                onTap: busy ? null : () => controller.run(full: true),
+              ),
+            ],
+          ],
+        ),
+
+        if (on && backup.message != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 10, left: 4, right: 4),
+            child: Text(
+              backup.message!,
+              style: t.caption.copyWith(
+                color: backup.phase == BackupPhase.failed ? c.clay : c.muted,
+                height: 1.5,
+              ),
+            ),
+          ),
+
+        if (!on)
+          Padding(
+            padding: const EdgeInsets.only(top: 10, left: 4, right: 4),
+            child: Text(
+              'still writes a plain folder of dated Markdown files. Point '
+              'Syncthing — or any other sync app — at it and your journal '
+              'backs itself up. Pick a folder outside Android/data so other '
+              'apps can read it.',
+              style: t.caption.copyWith(color: c.muted, height: 1.5),
+            ),
+          ),
+      ],
+    );
+  }
+
+  static String _lastRun(BackupState backup, AppSettings settings) {
+    if (backup.isRunning) return 'Working…';
+
+    final at = settings.backupLastRunAt;
+    if (at == null) return 'Not yet';
+
+    final now = DateTime.now();
+    final sameDay = at.year == now.year && at.month == now.month &&
+        at.day == now.day;
+    return sameDay ? StillDates.timeOfDay(at) : StillDates.fullDate(at);
+  }
+}
+
 class _TimeChip extends ConsumerWidget {
   const _TimeChip({required this.slot, required this.selected});
 
@@ -343,7 +466,16 @@ class _DataRow extends StatelessWidget {
               Expanded(
                 child: Text(label, style: t.settingsRow.copyWith(color: c.ink)),
               ),
-              Text(trailing, style: t.bodySmall.copyWith(color: c.muted)),
+              const SizedBox(width: 12),
+              Flexible(
+                child: Text(
+                  trailing,
+                  textAlign: TextAlign.right,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: t.bodySmall.copyWith(color: c.muted),
+                ),
+              ),
             ],
           ),
         ),

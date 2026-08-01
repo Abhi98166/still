@@ -22,7 +22,22 @@ enum ExportFormat {
 }
 
 class ExportService {
+  const ExportService();
+
   static const int schemaVersion = 1;
+
+  String entryDocument(JournalEntry e) {
+    final b = StringBuffer()
+      ..writeln('---')
+      ..writeln('date: ${e.date}')
+      ..writeln('title: ${jsonEncode(e.title)}')
+      ..writeln('created: ${e.createdAt.toIso8601String()}')
+      ..writeln('updated: ${e.updatedAt.toIso8601String()}')
+      ..writeln('---')
+      ..writeln()
+      ..writeln(e.content.trimRight());
+    return b.toString();
+  }
 
   Future<void> share(List<JournalEntry> entries, ExportFormat format) async {
     final content = serialise(entries, format);
@@ -109,6 +124,8 @@ class ExportService {
 }
 
 class ImportService {
+  const ImportService();
+
   Future<List<JournalEntry>?> pickAndParse() async {
     final file = await openFile(
       acceptedTypeGroups: [
@@ -165,6 +182,47 @@ class ImportService {
       throw const ImportException('That file contained no readable entries.');
     }
     return entries;
+  }
+
+  JournalEntry? parseEntryDocument(String raw) {
+    final lines = const LineSplitter().convert(raw);
+    if (lines.isEmpty || lines.first.trim() != '---') return null;
+
+    final close = lines.indexWhere((l) => l.trim() == '---', 1);
+    if (close < 0) return null;
+
+    final fields = <String, String>{};
+    for (final line in lines.getRange(1, close)) {
+      final colon = line.indexOf(':');
+      if (colon < 0) continue;
+      fields[line.substring(0, colon).trim()] = line.substring(colon + 1).trim();
+    }
+
+    final date = fields['date'];
+    if (date == null || !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(date)) {
+      return null;
+    }
+
+    final created = _millisOrNow(fields['created']);
+    return JournalEntry(
+      id: 'entry-$date',
+      date: date,
+      title: _unquote(fields['title']),
+      content: lines.skip(close + 1).join('\n').trim(),
+      createdAt: created,
+      updatedAt: _millis(fields['updated']) ?? created,
+    );
+  }
+
+  static String _unquote(String? raw) {
+    if (raw == null || raw.isEmpty) return '';
+    if (!raw.startsWith('"')) return raw;
+    try {
+      final decoded = jsonDecode(raw);
+      return decoded is String ? decoded : raw;
+    } on FormatException {
+      return raw;
+    }
   }
 
   static DateTime _millisOrNow(Object? v) => _millis(v) ?? DateTime.now();

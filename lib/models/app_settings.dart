@@ -44,6 +44,10 @@ class AppSettings {
     this.hasOnboarded = false,
     this.reminderEnabled = false,
     this.reminderTimeId = ReminderSlot.defaultId,
+    this.backupEnabled = false,
+    this.backupFolderUri,
+    this.backupFolderName,
+    this.backupLastRunAt,
   });
 
   final ThemeMode themeMode;
@@ -56,9 +60,19 @@ class AppSettings {
 
   final String reminderTimeId;
 
+  final bool backupEnabled;
+
+  final String? backupFolderUri;
+
+  final String? backupFolderName;
+
+  final DateTime? backupLastRunAt;
+
   Accent get accent => AccentRegistry.byId(accentId);
 
   ReminderSlot get reminderTime => ReminderSlot.byId(reminderTimeId);
+
+  bool get backupReady => backupEnabled && backupFolderUri != null;
 
   AppSettings copyWith({
     ThemeMode? themeMode,
@@ -66,6 +80,10 @@ class AppSettings {
     bool? hasOnboarded,
     bool? reminderEnabled,
     String? reminderTimeId,
+    bool? backupEnabled,
+    String? backupFolderUri,
+    String? backupFolderName,
+    DateTime? backupLastRunAt,
   }) {
     return AppSettings(
       themeMode: themeMode ?? this.themeMode,
@@ -73,6 +91,20 @@ class AppSettings {
       hasOnboarded: hasOnboarded ?? this.hasOnboarded,
       reminderEnabled: reminderEnabled ?? this.reminderEnabled,
       reminderTimeId: reminderTimeId ?? this.reminderTimeId,
+      backupEnabled: backupEnabled ?? this.backupEnabled,
+      backupFolderUri: backupFolderUri ?? this.backupFolderUri,
+      backupFolderName: backupFolderName ?? this.backupFolderName,
+      backupLastRunAt: backupLastRunAt ?? this.backupLastRunAt,
+    );
+  }
+
+  AppSettings withoutBackup() {
+    return AppSettings(
+      themeMode: themeMode,
+      accentId: accentId,
+      hasOnboarded: hasOnboarded,
+      reminderEnabled: reminderEnabled,
+      reminderTimeId: reminderTimeId,
     );
   }
 }

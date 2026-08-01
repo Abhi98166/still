@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -6,6 +8,8 @@ import '../models/app_settings.dart';
 import '../models/journal_entry.dart';
 import '../models/journal_stats.dart';
 import '../repositories/journal_repository.dart';
+import '../services/backup_service.dart';
+import '../services/backup_storage.dart';
 import '../services/notification_service.dart';
 import '../services/preferences_service.dart';
 
@@ -26,6 +30,14 @@ final journalRepositoryProvider = Provider<JournalRepository>(
 
 final notificationServiceProvider = Provider<NotificationService>(
   (ref) => NotificationService(),
+);
+
+final backupStorageProvider = Provider<BackupStorage>(
+  (ref) => const BackupStorage(),
+);
+
+final backupServiceProvider = Provider<BackupService>(
+  (ref) => BackupService(ref.watch(backupStorageProvider)),
 );
 
 class SettingsController extends Notifier<AppSettings> {
@@ -58,6 +70,25 @@ class SettingsController extends Notifier<AppSettings> {
     state = state.copyWith(reminderTimeId: id, reminderEnabled: true);
     await _prefs.setReminderTimeId(id);
     await _prefs.setReminderEnabled(true);
+  }
+
+  Future<void> setBackupFolder(BackupFolder folder) async {
+    state = state.copyWith(
+      backupEnabled: true,
+      backupFolderUri: folder.uri,
+      backupFolderName: folder.name,
+    );
+    await _prefs.setBackupFolder(folder.uri, folder.name);
+  }
+
+  Future<void> markBackupRun(DateTime at) async {
+    state = state.copyWith(backupLastRunAt: at);
+    await _prefs.setBackupLastRun(at);
+  }
+
+  Future<void> clearBackup() async {
+    state = state.withoutBackup();
+    await _prefs.clearBackup();
   }
 }
 
@@ -108,6 +139,151 @@ final searchResultsProvider = StreamProvider<List<JournalEntry>>((ref) {
   final query = ref.watch(searchQueryProvider);
   return ref.watch(journalRepositoryProvider).watchSearch(query);
 });
+
+enum BackupPhase { idle, running, done, failed }
+
+@immutable
+class BackupState {
+  const BackupState({this.phase = BackupPhase.idle, this.message});
+
+  final BackupPhase phase;
+
+  final String? message;
+
+  bool get isRunning => phase == BackupPhase.running;
+}
+
+class BackupController extends Notifier<BackupState> {
+  static const Duration _settleDelay = Duration(seconds: 4);
+
+  Timer? _debounce;
+  String? _signature;
+  bool _rerun = false;
+
+  @override
+  BackupState build() {
+    ref.keepAlive();
+    ref.onDispose(() => _debounce?.cancel());
+
+    ref.listen<List<JournalEntry>>(entryListProvider, (_, next) {
+      if (!ref.read(settingsProvider).backupReady) return;
+      _debounce?.cancel();
+      _debounce = Timer(_settleDelay, () => unawaited(run(silent: true)));
+    });
+
+    return const BackupState();
+  }
+
+  Future<void> chooseFolder() async {
+    try {
+      final folder = await ref.read(backupStorageProvider).pickFolder();
+      if (folder == null) return;
+
+      await ref.read(settingsProvider.notifier).setBackupFolder(folder);
+      _signature = null;
+      await run(full: true);
+    } on BackupStorageException catch (e) {
+      state = BackupState(phase: BackupPhase.failed, message: e.message);
+    }
+  }
+
+  Future<void> disable() async {
+    final uri = ref.read(settingsProvider).backupFolderUri;
+
+    _debounce?.cancel();
+    _signature = null;
+    _rerun = false;
+    state = const BackupState();
+    await ref.read(settingsProvider.notifier).clearBackup();
+
+    if (uri == null) return;
+    try {
+      await ref.read(backupStorageProvider).release(uri);
+    } on BackupStorageException {
+      return;
+    }
+  }
+
+  void onAppLifecycle() => unawaited(run(silent: true));
+
+  Future<void> run({bool full = false, bool silent = false}) async {
+    final settings = ref.read(settingsProvider);
+    final uri = settings.backupFolderUri;
+    if (!settings.backupEnabled || uri == null) return;
+
+    if (state.isRunning) {
+      _rerun = true;
+      return;
+    }
+
+    // An unresolved stream reads as an empty journal, which would prune every
+    // file in the backup folder. Wait for the real rows instead.
+    final loaded = ref.read(entriesProvider);
+    if (!loaded.hasValue) return;
+
+    final entries = loaded.requireValue;
+    final signature = _signatureOf(entries);
+    if (silent && !full && signature == _signature) return;
+
+    _debounce?.cancel();
+    state = const BackupState(phase: BackupPhase.running);
+
+    try {
+      if (!await ref.read(backupStorageProvider).hasAccess(uri)) {
+        state = const BackupState(
+          phase: BackupPhase.failed,
+          message: 'still no longer has access to that folder. Choose it again.',
+        );
+        return;
+      }
+
+      final outcome = await ref
+          .read(backupServiceProvider)
+          .run(folderUri: uri, entries: entries, full: full);
+
+      _signature = signature;
+      await ref.read(settingsProvider.notifier).markBackupRun(DateTime.now());
+      state = BackupState(phase: BackupPhase.done, message: _summary(outcome));
+    } on BackupStorageException catch (e) {
+      state = BackupState(phase: BackupPhase.failed, message: e.message);
+    } catch (e) {
+      state = const BackupState(
+        phase: BackupPhase.failed,
+        message: 'Could not write to the backup folder.',
+      );
+    } finally {
+      if (_rerun) {
+        _rerun = false;
+        unawaited(run(silent: true));
+      }
+    }
+  }
+
+  static String _signatureOf(List<JournalEntry> entries) {
+    var newest = 0;
+    for (final e in entries) {
+      final updated = e.updatedAt.millisecondsSinceEpoch;
+      if (updated > newest) newest = updated;
+    }
+    return '${entries.length}:$newest';
+  }
+
+  static String _summary(BackupOutcome outcome) {
+    if (!outcome.changed) return 'Already up to date.';
+
+    final written = outcome.written;
+    final removed = outcome.removed;
+    final parts = <String>[
+      if (written > 0) 'backed up $written ${written == 1 ? 'entry' : 'entries'}',
+      if (removed > 0) 'removed $removed ${removed == 1 ? 'file' : 'files'}',
+    ];
+    final sentence = parts.join(', ');
+    return '${sentence[0].toUpperCase()}${sentence.substring(1)}.';
+  }
+}
+
+final backupControllerProvider =
+    NotifierProvider<BackupController, BackupState>(BackupController.new);
 
 final visibleMonthProvider = NotifierProvider<VisibleMonthController, DateTime>(
   VisibleMonthController.new,
