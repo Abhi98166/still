@@ -1,4 +1,4 @@
-package com.example.still
+package com.lancerabhi.still
 
 import io.flutter.embedding.android.FlutterActivity
 
