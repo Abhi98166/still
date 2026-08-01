@@ -12,21 +12,44 @@ class ReminderSlot {
   String get id =>
       '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
 
-  String get label => id;
+  String get label {
+    final display = hour % 12 == 0 ? 12 : hour % 12;
+    final period = hour < 12 ? 'AM' : 'PM';
+    return '$display:${minute.toString().padLeft(2, '0')} $period';
+  }
 
-  static const List<ReminderSlot> all = [
+  TimeOfDay get timeOfDay => TimeOfDay(hour: hour, minute: minute);
+
+  bool get isPreset => presets.contains(this);
+
+  static const List<ReminderSlot> presets = [
     ReminderSlot(7, 30),
     ReminderSlot(21, 0),
     ReminderSlot(22, 30),
   ];
 
+  static const ReminderSlot fallback = ReminderSlot(21, 0);
+
   static const String defaultId = '21:00';
 
-  static ReminderSlot byId(String? id) => all.firstWhere(
-    (s) => s.id == id,
-    orElse: () =>
-        all.firstWhere((s) => s.id == defaultId, orElse: () => all.first),
-  );
+  factory ReminderSlot.fromTimeOfDay(TimeOfDay time) =>
+      ReminderSlot(time.hour, time.minute);
+
+  static ReminderSlot? tryParse(String? id) {
+    if (id == null) return null;
+
+    final parts = id.split(':');
+    if (parts.length != 2) return null;
+
+    final hour = int.tryParse(parts[0]);
+    final minute = int.tryParse(parts[1]);
+    if (hour == null || minute == null) return null;
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+
+    return ReminderSlot(hour, minute);
+  }
+
+  static ReminderSlot byId(String? id) => tryParse(id) ?? fallback;
 
   @override
   bool operator ==(Object other) =>

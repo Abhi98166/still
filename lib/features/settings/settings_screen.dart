@@ -272,30 +272,84 @@ class _ReminderGroup extends ConsumerWidget {
         AnimatedOpacity(
           duration: StillMotion.themeSwap,
           opacity: settings.reminderEnabled ? 1 : 0.4,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Time',
-                    style: t.settingsRow.copyWith(color: c.ink),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              InkWell(
+                onTap: () => _pickTime(context, ref, settings.reminderTime),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 16, 18, 12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Time',
+                          style: t.settingsRow.copyWith(color: c.ink),
+                        ),
+                      ),
+                      Text(
+                        settings.reminderTime.label,
+                        style: t.settingsRow.copyWith(color: c.clay),
+                      ),
+                      const SizedBox(width: 2),
+                      Icon(
+                        Icons.chevron_right_rounded,
+                        size: 18,
+                        color: c.muted,
+                      ),
+                    ],
                   ),
                 ),
-                for (final slot in ReminderSlot.all)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 6),
-                    child: _TimeChip(
-                      slot: slot,
-                      selected: slot.id == settings.reminderTimeId,
+              ),
+
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 0, 18, 16),
+                child: Wrap(
+                  alignment: WrapAlignment.end,
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final slot in ReminderSlot.presets)
+                      _TimeChip(
+                        slot: slot,
+                        selected: slot == settings.reminderTime,
+                      ),
+                    _CustomTimeChip(
+                      selected: !settings.reminderTime.isPreset,
+                      onTap: () =>
+                          _pickTime(context, ref, settings.reminderTime),
                     ),
-                  ),
-              ],
-            ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
       ],
     );
+  }
+
+  static Future<void> _pickTime(
+    BuildContext context,
+    WidgetRef ref,
+    ReminderSlot current,
+  ) async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: current.timeOfDay,
+      helpText: 'Daily nudge',
+      builder: (pickerContext, child) => MediaQuery(
+        data: MediaQuery.of(
+          pickerContext,
+        ).copyWith(alwaysUse24HourFormat: false),
+        child: child!,
+      ),
+    );
+    if (picked == null) return;
+
+    await ref
+        .read(settingsProvider.notifier)
+        .setReminderTime(ReminderSlot.fromTimeOfDay(picked));
   }
 }
 
@@ -407,8 +461,8 @@ class _BackupGroup extends ConsumerWidget {
     if (at == null) return 'Not yet';
 
     final now = DateTime.now();
-    final sameDay = at.year == now.year && at.month == now.month &&
-        at.day == now.day;
+    final sameDay =
+        at.year == now.year && at.month == now.month && at.day == now.day;
     return sameDay ? StillDates.timeOfDay(at) : StillDates.fullDate(at);
   }
 }
@@ -421,6 +475,39 @@ class _TimeChip extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    return _ChipShell(
+      label: slot.label,
+      selected: selected,
+      onTap: () => ref.read(settingsProvider.notifier).setReminderTime(slot),
+    );
+  }
+}
+
+class _CustomTimeChip extends StatelessWidget {
+  const _CustomTimeChip({required this.selected, required this.onTap});
+
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return _ChipShell(label: 'Custom', selected: selected, onTap: onTap);
+  }
+}
+
+class _ChipShell extends StatelessWidget {
+  const _ChipShell({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
     final c = context.still;
     final t = context.type;
 
@@ -428,8 +515,7 @@ class _TimeChip extends ConsumerWidget {
       selected: selected,
       button: true,
       child: GestureDetector(
-        onTap: () =>
-            ref.read(settingsProvider.notifier).setReminderTime(slot.id),
+        onTap: onTap,
         behavior: HitTestBehavior.opaque,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
@@ -439,7 +525,7 @@ class _TimeChip extends ConsumerWidget {
             border: Border.all(color: selected ? c.clay : c.line),
           ),
           child: Text(
-            slot.label,
+            label,
             style: t.chip.copyWith(color: selected ? c.clay : c.soft),
           ),
         ),

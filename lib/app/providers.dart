@@ -66,9 +66,9 @@ class SettingsController extends Notifier<AppSettings> {
     await _prefs.setReminderEnabled(value);
   }
 
-  Future<void> setReminderTime(String id) async {
-    state = state.copyWith(reminderTimeId: id, reminderEnabled: true);
-    await _prefs.setReminderTimeId(id);
+  Future<void> setReminderTime(ReminderSlot slot) async {
+    state = state.copyWith(reminderTimeId: slot.id, reminderEnabled: true);
+    await _prefs.setReminderTimeId(slot.id);
     await _prefs.setReminderEnabled(true);
   }
 
@@ -232,7 +232,8 @@ class BackupController extends Notifier<BackupState> {
       if (!await ref.read(backupStorageProvider).hasAccess(uri)) {
         state = const BackupState(
           phase: BackupPhase.failed,
-          message: 'still no longer has access to that folder. Choose it again.',
+          message:
+              'still no longer has access to that folder. Choose it again.',
         );
         return;
       }
@@ -274,7 +275,8 @@ class BackupController extends Notifier<BackupState> {
     final written = outcome.written;
     final removed = outcome.removed;
     final parts = <String>[
-      if (written > 0) 'backed up $written ${written == 1 ? 'entry' : 'entries'}',
+      if (written > 0)
+        'backed up $written ${written == 1 ? 'entry' : 'entries'}',
       if (removed > 0) 'removed $removed ${removed == 1 ? 'file' : 'files'}',
     ];
     final sentence = parts.join(', ');

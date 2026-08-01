@@ -125,6 +125,31 @@ abstract final class StillTheme {
         showDragHandle: false,
       ),
 
+      timePickerTheme: TimePickerThemeData(
+        backgroundColor: c.card,
+        dialBackgroundColor: c.bg,
+        dialHandColor: c.clay,
+        dialTextColor: WidgetStateColor.resolveWith(
+          (s) => s.contains(WidgetState.selected) ? c.onClay : c.ink,
+        ),
+        hourMinuteColor: WidgetStateColor.resolveWith(
+          (s) => s.contains(WidgetState.selected) ? c.claySoft : c.bg,
+        ),
+        hourMinuteTextColor: WidgetStateColor.resolveWith(
+          (s) => s.contains(WidgetState.selected) ? c.clay : c.soft,
+        ),
+        dayPeriodColor: c.claySoft,
+        dayPeriodTextColor: WidgetStateColor.resolveWith(
+          (s) => s.contains(WidgetState.selected) ? c.clay : c.soft,
+        ),
+        dayPeriodBorderSide: BorderSide(color: c.line),
+        entryModeIconColor: c.muted,
+        helpTextStyle: type.overlineSmall.copyWith(color: c.muted),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(StillRadius.group),
+        ),
+      ),
+
       switchTheme: SwitchThemeData(
         thumbColor: const WidgetStatePropertyAll(Colors.white),
         trackColor: WidgetStateProperty.resolveWith(
