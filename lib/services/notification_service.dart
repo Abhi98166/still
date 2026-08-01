@@ -15,10 +15,13 @@ class NotificationService {
   final _plugin = FlutterLocalNotificationsPlugin();
   bool _ready = false;
 
+  static bool get isSupported =>
+      !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+
   Future<void> init() async {
     if (_ready) return;
 
-    if (kIsWeb || !(Platform.isAndroid || Platform.isIOS)) return;
+    if (!isSupported) return;
 
     tzdata.initializeTimeZones();
     try {

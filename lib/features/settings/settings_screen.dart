@@ -9,6 +9,7 @@ import '../../core/theme/tokens.dart';
 import '../../core/still_dates.dart';
 import '../../models/app_settings.dart';
 import '../../services/backup_storage.dart';
+import '../../services/notification_service.dart';
 import '../../widgets/still_card.dart';
 import '../../widgets/still_scaffold.dart';
 import '../../widgets/still_tab_bar.dart';
@@ -262,8 +263,7 @@ class _ReminderGroup extends ConsumerWidget {
               ),
               Switch(
                 value: settings.reminderEnabled,
-                onChanged: (v) =>
-                    ref.read(settingsProvider.notifier).setReminderEnabled(v),
+                onChanged: (v) => _setEnabled(context, ref, v),
               ),
             ],
           ),
@@ -311,10 +311,12 @@ class _ReminderGroup extends ConsumerWidget {
                   children: [
                     for (final slot in ReminderSlot.presets)
                       _TimeChip(
-                        slot: slot,
+                        label: slot.label,
                         selected: slot == settings.reminderTime,
+                        onTap: () => _chooseTime(context, ref, slot),
                       ),
-                    _CustomTimeChip(
+                    _TimeChip(
+                      label: 'Custom',
                       selected: !settings.reminderTime.isPreset,
                       onTap: () =>
                           _pickTime(context, ref, settings.reminderTime),
@@ -345,11 +347,51 @@ class _ReminderGroup extends ConsumerWidget {
         child: child!,
       ),
     );
-    if (picked == null) return;
+    if (picked == null || !context.mounted) return;
 
-    await ref
-        .read(settingsProvider.notifier)
-        .setReminderTime(ReminderSlot.fromTimeOfDay(picked));
+    await _chooseTime(context, ref, ReminderSlot.fromTimeOfDay(picked));
+  }
+
+  static Future<void> _chooseTime(
+    BuildContext context,
+    WidgetRef ref,
+    ReminderSlot slot,
+  ) async {
+    await ref.read(settingsProvider.notifier).setReminderTime(slot);
+
+    if (!ref.read(settingsProvider).reminderEnabled && context.mounted) {
+      await _setEnabled(context, ref, true);
+    }
+  }
+
+  static Future<void> _setEnabled(
+    BuildContext context,
+    WidgetRef ref,
+    bool value,
+  ) async {
+    if (!value) {
+      await ref.read(settingsProvider.notifier).setReminderEnabled(false);
+      return;
+    }
+
+    final granted =
+        !NotificationService.isSupported ||
+        await ref.read(notificationServiceProvider).requestPermission();
+
+    if (granted) {
+      await ref.read(settingsProvider.notifier).setReminderEnabled(true);
+      return;
+    }
+
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Notifications are blocked for still. Allow them in your system '
+          'settings to get the nudge.',
+        ),
+      ),
+    );
   }
 }
 
@@ -467,36 +509,8 @@ class _BackupGroup extends ConsumerWidget {
   }
 }
 
-class _TimeChip extends ConsumerWidget {
-  const _TimeChip({required this.slot, required this.selected});
-
-  final ReminderSlot slot;
-  final bool selected;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return _ChipShell(
-      label: slot.label,
-      selected: selected,
-      onTap: () => ref.read(settingsProvider.notifier).setReminderTime(slot),
-    );
-  }
-}
-
-class _CustomTimeChip extends StatelessWidget {
-  const _CustomTimeChip({required this.selected, required this.onTap});
-
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return _ChipShell(label: 'Custom', selected: selected, onTap: onTap);
-  }
-}
-
-class _ChipShell extends StatelessWidget {
-  const _ChipShell({
+class _TimeChip extends StatelessWidget {
+  const _TimeChip({
     required this.label,
     required this.selected,
     required this.onTap,

@@ -67,9 +67,8 @@ class SettingsController extends Notifier<AppSettings> {
   }
 
   Future<void> setReminderTime(ReminderSlot slot) async {
-    state = state.copyWith(reminderTimeId: slot.id, reminderEnabled: true);
+    state = state.copyWith(reminderTimeId: slot.id);
     await _prefs.setReminderTimeId(slot.id);
-    await _prefs.setReminderEnabled(true);
   }
 
   Future<void> setBackupFolder(BackupFolder folder) async {
