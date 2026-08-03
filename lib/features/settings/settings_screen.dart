@@ -86,7 +86,7 @@ class SettingsScreen extends ConsumerWidget {
             const SizedBox(height: 26),
             Center(
               child: Text(
-                'still 1.0 · $entryCount '
+                'still 1.0.1 · $entryCount '
                 '${entryCount == 1 ? 'entry' : 'entries'} on this device\n'
                 'No account. No analytics. No cloud.',
                 textAlign: TextAlign.center,
